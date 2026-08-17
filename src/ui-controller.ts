@@ -179,8 +179,9 @@ function setStatus(msg: string): void {
 /* Optional persistence via Supabase / Render                          */
 /* ------------------------------------------------------------------ */
 async function persistSession(result: SNCAResult): Promise<void> {
+  // All privileged writes go through the Render proxy (service role).
+  // Direct Supabase REST with anon key is intentionally removed.
   try {
-    // Lightweight fire-and-forget metrics to Render backend
     await fetch(`${RENDER_URL}/api/metrics`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -190,29 +191,39 @@ async function persistSession(result: SNCAResult): Promise<void> {
         bytes: result.data.length,
         latencyMs: result.encodeLatencyMs,
         throughputMBps: result.throughputMBps,
+        source: 'codec-ui',
         ts: Date.now(),
       }),
-    }).catch(() => { /* backend may be cold */ });
-
-    // Optional Supabase insert (anon key, RLS must allow)
-    await fetch(`${SUPABASE_URL}/rest/v1/codec_sessions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: SUPABASE_KEY,
-        Authorization: `Bearer ${SUPABASE_KEY}`,
-        Prefer: 'return=minimal',
-      },
-      body: JSON.stringify({
-        k: result.k,
-        m: result.m,
-        payload_bytes: result.data.length,
-        latency_ms: result.encodeLatencyMs,
-      }),
-    }).catch(() => { /* table may not exist yet */ });
+    });
   } catch {
-    /* non-fatal */
+    /* backend may be cold — non-fatal */
   }
+}
+
+/**
+ * OpenRouter LLM proxy — browser never holds OPENROUTER_API_KEY.
+ * POST https://<render>/api/llm  { model?, messages, temperature?, max_tokens? }
+ */
+export async function callLlm(messages: Array<{ role: string; content: string }>, opts: {
+  model?: string;
+  temperature?: number;
+  max_tokens?: number;
+} = {}): Promise<unknown> {
+  const res = await fetch(`${RENDER_URL}/api/llm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: opts.model ?? 'openai/gpt-4o-mini',
+      messages,
+      temperature: opts.temperature ?? 0.2,
+      max_tokens: opts.max_tokens ?? 1024,
+    }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).error || `llm_http_${res.status}`);
+  }
+  return res.json();
 }
 
 /* ------------------------------------------------------------------ */
