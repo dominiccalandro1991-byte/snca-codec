@@ -3,44 +3,98 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Nano Cloud Codec — GF(2⁸) Cauchy MDS</title>
+  <meta name="description" content="Nano Cloud — reliable file protection" />
+  <title>Nano Cloud</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
   <div id="app">
-    <header>
-      <h1>Nano Cloud Codec</h1>
-      <p>Real-time GF(2<sup>8</sup>) Cauchy MDS Erasure Coding · SIMD / WASM / SharedArrayBuffer</p>
-      <div id="status" class="status">Booting…</div>
-    </header>
+    <!-- Top bar -->
+    <nav class="topbar" aria-label="Primary">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span class="brand-name">Nano Cloud</span>
+      </div>
+      <div class="topbar-actions">
+        <span id="status" class="status-pill" role="status">Starting…</span>
+        <button type="button" id="settingsBtn" class="icon-btn" aria-label="Settings" title="Settings">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>
+          </svg>
+        </button>
+      </div>
+    </nav>
 
-    <main>
-      <section class="upload-area" id="dropZone">
-        <p>Drag &amp; drop files here or click to select</p>
+    <main class="stage">
+      <!-- Hero drop zone -->
+      <section class="drop-card" id="dropZone" tabindex="0" aria-label="Upload files">
         <input type="file" id="fileInput" multiple hidden />
+        <div class="drop-visual" aria-hidden="true">
+          <div class="drop-ring"></div>
+          <svg class="drop-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+        </div>
+        <h1 class="drop-title">Drop files to protect</h1>
+        <p class="drop-hint">or click to browse</p>
+        <p id="fileSummary" class="file-summary" hidden></p>
       </section>
 
-      <section class="controls">
-        <label>Data shards (k)
-          <input type="number" id="kInput" value="4" min="1" max="16" />
-        </label>
-        <label>Parity shards (m)
-          <input type="number" id="mInput" value="2" min="1" max="8" />
-        </label>
-        <button id="encodeBtn" disabled>Encode</button>
-        <button id="decodeBtn">Decode (with toggled losses)</button>
+      <!-- Primary actions -->
+      <section class="action-bar" aria-label="Actions">
+        <button type="button" id="encodeBtn" class="btn btn-primary" disabled>Protect</button>
+        <button type="button" id="decodeBtn" class="btn btn-secondary" disabled>Restore</button>
       </section>
 
-      <section class="visualization">
-        <div id="shardGrid"></div>
-        <div id="telemetry"></div>
+      <!-- Results -->
+      <section class="results" id="resultsPanel" hidden>
+        <div class="panel glass">
+          <div class="panel-head">
+            <h2>Fragments</h2>
+            <p class="panel-sub">Tap a fragment to simulate loss before restore</p>
+          </div>
+          <div id="shardGrid" class="shard-grid" role="list"></div>
+        </div>
+        <div class="panel glass panel-activity">
+          <div class="panel-head">
+            <h2>Activity</h2>
+          </div>
+          <div id="telemetry" class="activity-log" aria-live="polite"></div>
+        </div>
       </section>
     </main>
-
-    <footer>
-      <span>Zero-copy · Lock-free ring · WASM SIMD128</span>
-    </footer>
   </div>
+
+  <!-- Settings modal -->
+  <div id="settingsModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+    <div class="modal-backdrop" id="settingsBackdrop"></div>
+    <div class="modal-card glass">
+      <div class="modal-head">
+        <h2 id="settingsTitle">Settings</h2>
+        <button type="button" id="settingsClose" class="icon-btn" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        <label class="field">
+          <span class="field-label">Data fragments</span>
+          <input type="number" id="kInput" value="4" min="1" max="16" />
+        </label>
+        <label class="field">
+          <span class="field-label">Recovery fragments</span>
+          <input type="number" id="mInput" value="2" min="1" max="8" />
+        </label>
+        <p class="field-note">Higher recovery fragments tolerate more loss. Defaults work for most files.</p>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="/src/ui-controller.ts"></script>
 </body>
 </html>
