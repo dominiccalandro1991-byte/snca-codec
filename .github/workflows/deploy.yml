@@ -29,7 +29,9 @@ jobs:
           cache-dependency-path: package-lock.json
 
       - name: Install JS dependencies
-        run: npm ci
+        run: |
+          npm config set registry https://registry.npmjs.org/
+          npm ci || npm install
 
       - name: Install emsdk
         run: |
