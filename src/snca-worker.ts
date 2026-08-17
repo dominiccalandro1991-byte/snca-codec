@@ -23,7 +23,7 @@ ctx.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       if (!msg.data || !msg.config) throw new Error('missing data/config');
       const result: SNCAResult = codec.encode(msg.data, msg.config.k, msg.config.m);
       const resp: WorkerResponse = { type: 'encoded', result };
-      ctx.postMessage(resp, [result.parity.buffer]);
+      ctx.postMessage(resp);
       return;
     }
 
@@ -39,7 +39,7 @@ ctx.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         msg.blockSize
       );
       const resp: WorkerResponse = { type: 'decoded', data: recovered };
-      ctx.postMessage(resp, [recovered.buffer]);
+      ctx.postMessage(resp);
       return;
     }
   } catch (err: unknown) {

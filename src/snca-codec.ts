@@ -31,6 +31,69 @@ export function assetUrl(file: string): string {
   return `${normalized}${file.replace(/^\//, '')}`;
 }
 
+
+/* Pure-JS GF(2^8) fallback when WASM encode throws */
+const GF_EXP = new Uint8Array(512);
+const GF_LOG = new Uint8Array(256);
+const GF_INV = new Uint8Array(256);
+(function initGf() {
+  let x = 1;
+  for (let i = 0; i < 255; i++) {
+    GF_EXP[i] = x;
+    GF_EXP[i + 255] = x;
+    GF_LOG[x] = i;
+    x <<= 1;
+    if (x & 0x100) x ^= 0x11d;
+  }
+  GF_LOG[0] = 0;
+  GF_INV[0] = 0;
+  for (let i = 1; i < 256; i++) GF_INV[i] = GF_EXP[255 - GF_LOG[i]];
+})();
+
+function gfMul(a: number, b: number): number {
+  if (a === 0 || b === 0) return 0;
+  return GF_EXP[GF_LOG[a] + GF_LOG[b]];
+}
+
+function jsCauchyEncode(data: Uint8Array, k: number, m: number): SNCAResult {
+  if (data.length % k !== 0) throw new Error('payload not divisible by k');
+  const blockSize = data.length / k;
+  const parity = new Uint8Array(m * blockSize);
+  const matrix = new Uint8Array(m * k);
+  for (let i = 0; i < m; i++) {
+    const y = k + i;
+    for (let j = 0; j < k; j++) {
+      const denom = j ^ y;
+      matrix[i * k + j] = GF_INV[denom];
+    }
+  }
+  const t0 = performance.now();
+  for (let shard = 0; shard < k; shard++) {
+    const srcOff = shard * blockSize;
+    for (let p = 0; p < m; p++) {
+      const coeff = matrix[p * k + shard];
+      if (coeff === 0) continue;
+      const dstOff = p * blockSize;
+      if (coeff === 1) {
+        for (let b = 0; b < blockSize; b++) parity[dstOff + b] ^= data[srcOff + b];
+      } else {
+        for (let b = 0; b < blockSize; b++) parity[dstOff + b] ^= gfMul(coeff, data[srcOff + b]);
+      }
+    }
+  }
+  const t1 = performance.now();
+  const latency = t1 - t0;
+  return {
+    data,
+    parity,
+    k,
+    m,
+    blockSize,
+    encodeLatencyMs: latency,
+    throughputMBps: latency > 0 ? data.length / (1024 * 1024) / (latency / 1000) : 0,
+  };
+}
+
 export class SNCACodec {
   private module: SNCAModule | null = null;
   private ready = false;
@@ -105,6 +168,15 @@ export class SNCACodec {
   }
 
   encode(data: Uint8Array, k: number, m: number): SNCAResult {
+    try {
+      return this.encodeWasm(data, k, m);
+    } catch (err) {
+      console.warn('[SNCA] WASM encode failed, using JS fallback', err);
+      return jsCauchyEncode(data, k, m);
+    }
+  }
+
+  private encodeWasm(data: Uint8Array, k: number, m: number): SNCAResult {
     const mod = this.ensureReady();
     if (data.length % k !== 0) {
       throw new Error(`payload length ${data.length} not divisible by k=${k}`);

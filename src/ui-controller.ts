@@ -96,6 +96,7 @@ function initWorker(): void {
         renderShards(msg.result);
         if (decodeBtn) decodeBtn.disabled = false;
         setStatus('Protected', 'ready');
+        if (encodeBtn) encodeBtn.disabled = false;
         logTelemetry({
           timestamp: Date.now(),
           latencyMs: msg.result.encodeLatencyMs,
@@ -118,6 +119,7 @@ function initWorker(): void {
       if (msg.type === 'error') {
         clearBootTimer();
         setStatus('WASM Error', 'error');
+        if (encodeBtn) encodeBtn.disabled = false;
         console.error('[SNCA] worker:', msg.error);
       }
     } catch (err) {
@@ -183,6 +185,17 @@ function updateFileSummary(): void {
 /* ------------------------------------------------------------------ */
 /* Encode / Decode                                                     */
 /* ------------------------------------------------------------------ */
+
+function padPayload(data: Uint8Array, k: number): Uint8Array {
+  // Pad to multiple of k (and at least 16 bytes for SIMD-friendly blocks)
+  const unit = k * 16;
+  const need = data.length === 0 ? unit : Math.ceil(data.length / unit) * unit;
+  if (need === data.length) return data;
+  const out = new Uint8Array(need);
+  out.set(data);
+  return out;
+}
+
 function doEncode(): void {
   if (!worker || !ring) {
     setStatus('Not ready', 'error');
@@ -190,25 +203,39 @@ function doEncode(): void {
   }
   const k = parseInt(kInput?.value ?? '4', 10);
   const m = parseInt(mInput?.value ?? '2', 10);
-  if (k < 1 || m < 1 || k + m > 32) {
+  if (!Number.isFinite(k) || !Number.isFinite(m) || k < 1 || m < 1 || k + m > 32) {
     setStatus('Check settings', 'error');
     openSettings();
     return;
   }
-  const avail = ring.available();
-  const aligned = Math.floor(avail / k) * k;
-  if (aligned === 0) {
+
+  let avail = ring.available();
+  if (avail <= 0) {
+    setStatus('Add files first', 'error');
+    if (dropZone) {
+      dropZone.classList.add('drag');
+      setTimeout(() => dropZone.classList.remove('drag'), 600);
+    }
+    return;
+  }
+
+  // Read everything available, then pad so length % k === 0
+  const raw = ring.read(avail);
+  if (!raw || raw.length === 0) {
     setStatus('Add files first', 'error');
     return;
   }
-  const data = ring.read(aligned);
-  if (!data) return;
+  const data = padPayload(raw, k);
+
   setStatus('Protecting…');
+  if (encodeBtn) encodeBtn.disabled = true;
   try {
-    worker.postMessage({ type: 'encode', config: { k, m }, data }, [data.buffer]);
+    // Structured clone only — avoid transferable edge cases with WASM heap
+    worker.postMessage({ type: 'encode', config: { k, m }, data });
   } catch (err) {
     setStatus('Encode failed', 'error');
     console.error(err);
+    if (encodeBtn) encodeBtn.disabled = false;
   }
 }
 
@@ -227,8 +254,7 @@ function doDecode(): void {
   setStatus('Restoring…');
   try {
     worker.postMessage(
-      { type: 'decode', config: { k, m }, shards, present, blockSize },
-      [shards.buffer]
+      { type: 'decode', config: { k, m }, shards, present, blockSize }
     );
   } catch (err) {
     setStatus('Restore failed', 'error');
