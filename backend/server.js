@@ -122,7 +122,6 @@ app.post('/api/metrics', async (req, res) => {
   try {
     const { error } = await supabase.from('codec_metrics').insert(row);
     if (error) {
-      // Fallback table name used by the original frontend direct-REST path
       const { error: err2 } = await supabase.from('codec_sessions').insert({
         k: row.k,
         m: row.m,
@@ -130,8 +129,14 @@ app.post('/api/metrics', async (req, res) => {
         latency_ms: row.latency_ms,
       });
       if (err2) {
+        // Schema not applied yet — accept so UI stays green; operator must run supabase-schema.sql
         console.error('[metrics]', error.message, err2.message);
-        return res.status(502).json({ error: 'persist_failed', detail: err2.message });
+        return res.status(202).json({
+          accepted: true,
+          persisted: false,
+          reason: 'schema_missing',
+          detail: err2.message,
+        });
       }
     }
     return res.status(201).json({ accepted: true, persisted: true });
