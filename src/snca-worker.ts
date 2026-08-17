@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import type { WorkerRequest, WorkerResponse, SNCAResult } from './snca-types';
-import { SNCACodec } from './snca-codec';
+import { SNCACodec, assetUrl } from './snca-codec';
 
 const ctx: DedicatedWorkerGlobalScope = self as unknown as DedicatedWorkerGlobalScope;
 let codec: SNCACodec | null = null;
@@ -10,7 +10,8 @@ ctx.onmessage = async (event: MessageEvent<WorkerRequest>) => {
   try {
     if (msg.type === 'init') {
       codec = new SNCACodec();
-      await codec.load('/snca_codec.js');
+      const jsPath = assetUrl('snca_codec.js');
+      await codec.load(jsPath);
       const resp: WorkerResponse = { type: 'ready' };
       ctx.postMessage(resp);
       return;
@@ -22,7 +23,6 @@ ctx.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       if (!msg.data || !msg.config) throw new Error('missing data/config');
       const result: SNCAResult = codec.encode(msg.data, msg.config.k, msg.config.m);
       const resp: WorkerResponse = { type: 'encoded', result };
-      // Transfer parity buffer ownership
       ctx.postMessage(resp, [result.parity.buffer]);
       return;
     }
@@ -48,3 +48,8 @@ ctx.onmessage = async (event: MessageEvent<WorkerRequest>) => {
     ctx.postMessage(resp);
   }
 };
+
+ctx.addEventListener('error', (ev) => {
+  const resp: WorkerResponse = { type: 'error', error: ev.message || 'worker script error' };
+  ctx.postMessage(resp);
+});
