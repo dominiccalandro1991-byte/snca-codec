@@ -1,6 +1,8 @@
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  // Required for GitHub project pages: https://<user>.github.io/<repo>/
+  base: '/snca-codec/',
   root: '.',
   publicDir: 'public',
   build: {

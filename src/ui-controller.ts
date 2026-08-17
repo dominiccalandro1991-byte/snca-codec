@@ -1,3 +1,4 @@
+import './styles.css';
 import { SNCADataRingBuffer } from './snca-ring-buffer';
 import type { SNCAResult, TelemetrySample, WorkerResponse } from './snca-types';
 
