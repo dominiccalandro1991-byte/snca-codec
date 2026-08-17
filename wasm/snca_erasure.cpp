@@ -259,9 +259,11 @@ int32_t snca_decode_direct(uint8_t* shards_ptr, const uint8_t* present,
                 }
             }
         } else {
-            /* Missing parity: first recover the data vector, then re-encode */
-            uint8_t recovered[SNCA_MAX_SHARDS * 65536]; /* constrained by MAX_PAYLOAD */
-            if (k * block_size > sizeof(recovered)) return -7;
+            /* Missing parity: recover data vector then re-encode.
+             * Stack buffer hard-capped at 256 KiB to remain freestanding-safe. */
+            constexpr uint32_t RECOVER_MAX = 256u * 1024u;
+            if (k * block_size > RECOVER_MAX) return -7;
+            uint8_t recovered[RECOVER_MAX];
             for (uint32_t d = 0; d < k; ++d) {
                 uint8_t* dst = recovered + d * block_size;
                 std::memset(dst, 0, block_size);

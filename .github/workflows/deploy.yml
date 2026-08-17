@@ -24,36 +24,38 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
-          cache: npm
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install JS dependencies
+        run: npm ci
 
       - name: Install emsdk
         run: |
-          git clone https://github.com/emscripten-core/emsdk.git
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git
           cd emsdk
           ./emsdk install 3.1.64
           ./emsdk activate 3.1.64
-          echo "EMSDK=$GITHUB_WORKSPACE/emsdk" >> $GITHUB_ENV
-          echo "$GITHUB_WORKSPACE/emsdk/upstream/emscripten" >> $GITHUB_PATH
+          echo "EMSDK=$GITHUB_WORKSPACE/emsdk" >> "$GITHUB_ENV"
+          echo "$GITHUB_WORKSPACE/emsdk/upstream/emscripten" >> "$GITHUB_PATH"
           source ./emsdk_env.sh
           emcc -v
 
       - name: Build WASM kernel
         run: |
-          source $EMSDK/emsdk_env.sh
+          source "$EMSDK/emsdk_env.sh"
           cd wasm
           bash build.sh
           mkdir -p ../public
           cp build/snca_codec.js build/snca_codec.wasm ../public/
-
-      - name: Install JS dependencies
-        run: npm ci || npm install
+          ls -la ../public/
 
       - name: Vite production build
         env:
-          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL || 'https://hlwqtlrkwhuogcwnhjrs.supabase.co' }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY || 'sb_publishable_r7yKRKkp-98kOmtH2MxA3Q_CfeozGBf' }}
-          VITE_RENDER_SERVICE_URL: ${{ secrets.RENDER_SERVICE_URL || 'https://nano-cloud-backend.onrender.com' }}
+          VITE_SUPABASE_URL: ${{ vars.SUPABASE_URL || 'https://hlwqtlrkwhuogcwnhjrs.supabase.co' }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY || 'sb_publishable_r7yKRKkp-98kOmtH2MxA3Q_CfeozGBf' }}
+          VITE_RENDER_SERVICE_URL: ${{ vars.RENDER_SERVICE_URL || 'https://nano-cloud-backend.onrender.com' }}
         run: npm run build
 
       - name: Upload Pages artifact
