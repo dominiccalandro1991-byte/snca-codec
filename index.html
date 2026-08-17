@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nano Cloud Codec — GF(2⁸) Cauchy MDS</title>
+  <link rel="stylesheet" href="/src/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Nano Cloud Codec</h1>
+      <p>Real-time GF(2<sup>8</sup>) Cauchy MDS Erasure Coding · SIMD / WASM / SharedArrayBuffer</p>
+      <div id="status" class="status">Booting…</div>
+    </header>
+
+    <main>
+      <section class="upload-area" id="dropZone">
+        <p>Drag &amp; drop files here or click to select</p>
+        <input type="file" id="fileInput" multiple hidden />
+      </section>
+
+      <section class="controls">
+        <label>Data shards (k)
+          <input type="number" id="kInput" value="4" min="1" max="16" />
+        </label>
+        <label>Parity shards (m)
+          <input type="number" id="mInput" value="2" min="1" max="8" />
+        </label>
+        <button id="encodeBtn" disabled>Encode</button>
+        <button id="decodeBtn">Decode (with toggled losses)</button>
+      </section>
+
+      <section class="visualization">
+        <div id="shardGrid"></div>
+        <div id="telemetry"></div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Zero-copy · Lock-free ring · WASM SIMD128</span>
+    </footer>
+  </div>
+  <script type="module" src="/src/ui-controller.ts"></script>
+</body>
+</html>

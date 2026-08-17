@@ -1,0 +1,185 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --bg: #0f0f1a;
+  --surface: #1a1a2e;
+  --accent: #00d4ff;
+  --accent-dim: #00a8cc;
+  --text: #e8e8f0;
+  --muted: #8888a0;
+  --data: #00e676;
+  --parity: #ffab00;
+  --corrupt: #ff1744;
+}
+
+body {
+  font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.55;
+  min-height: 100vh;
+}
+
+#app {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  min-height: 100vh;
+}
+
+header {
+  text-align: center;
+}
+header h1 {
+  font-size: 2.25rem;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+}
+header p {
+  color: var(--muted);
+  margin-top: 0.35rem;
+  font-size: 0.95rem;
+}
+.status {
+  margin-top: 0.75rem;
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+  font-size: 0.8rem;
+  color: var(--accent-dim);
+  min-height: 1.2em;
+}
+
+.upload-area {
+  border: 2px dashed var(--accent);
+  border-radius: 12px;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+  background: var(--surface);
+}
+.upload-area:hover,
+.upload-area.drag {
+  background: rgba(0, 212, 255, 0.08);
+  border-color: var(--accent-dim);
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-end;
+  justify-content: center;
+}
+.controls label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+.controls input[type='number'] {
+  width: 4.5rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid #333355;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 1rem;
+}
+button {
+  padding: 0.55rem 1.25rem;
+  border: none;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #0a0a12;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: transform 0.15s, background 0.15s;
+}
+button:hover:not(:disabled) {
+  background: var(--accent-dim);
+  transform: translateY(-1px);
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.visualization {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 1.25rem;
+  flex: 1;
+}
+#shardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 0.6rem;
+  align-content: start;
+}
+.shard {
+  padding: 1rem 0.5rem;
+  border-radius: 8px;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  user-select: none;
+  transition: background 0.2s, border-color 0.2s;
+}
+.shard.data {
+  background: rgba(0, 230, 118, 0.12);
+  border: 2px solid var(--data);
+}
+.shard.parity {
+  background: rgba(255, 171, 0, 0.12);
+  border: 2px solid var(--parity);
+  cursor: pointer;
+}
+.shard.corrupted {
+  background: rgba(255, 23, 68, 0.25);
+  border-color: var(--corrupt);
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+#telemetry {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 1rem;
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+  font-size: 0.75rem;
+  overflow-y: auto;
+  max-height: 280px;
+  color: var(--muted);
+}
+#telemetry div {
+  padding: 0.2rem 0;
+  border-bottom: 1px solid #222238;
+}
+
+footer {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--muted);
+  padding-top: 0.5rem;
+}
+
+@media (max-width: 720px) {
+  .visualization {
+    grid-template-columns: 1fr;
+  }
+  header h1 {
+    font-size: 1.75rem;
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "nano-cloud-codec",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Production GF(2^8) Cauchy MDS Erasure Codec — WASM SIMD + SharedArrayBuffer + Web Workers",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "wasm": "cd wasm && bash build.sh"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}
