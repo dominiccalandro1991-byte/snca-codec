@@ -1,0 +1,12 @@
+{
+  "name": "Nano Cloud Codec (SNCA)",
+  "short_name": "SNCA Codec",
+  "id": "com.nanocloud.codec",
+  "description": "GF(2^8) Cauchy MDS erasure coding — protect and restore files client-side.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#07070a",
+  "theme_color": "#07070a",
+  "lang": "en"
+}

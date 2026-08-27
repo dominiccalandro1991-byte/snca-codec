@@ -1,0 +1,32 @@
+{
+  "appId": "com.nanocloud.codec",
+  "appName": "Nano Cloud Codec (SNCA)",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "backgroundColor": "#07070a",
+  "server": {
+    "androidScheme": "https",
+    "iosScheme": "https",
+    "allowNavigation": [
+      "nano-cloud-backend.onrender.com",
+      "dominiccalandro1991-byte.github.io"
+    ]
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  },
+  "ios": {
+    "contentInset": "automatic",
+    "limitsNavigationsToAppBoundDomains": false,
+    "preferredContentMode": "mobile"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 800,
+      "backgroundColor": "#07070a",
+      "showSpinner": false
+    }
+  }
+}
