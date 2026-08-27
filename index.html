@@ -3,8 +3,10 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="description" content="Nano Cloud — reliable file protection" />
-  <title>Nano Cloud</title>
+  <meta name="description" content="Nano Cloud Codec (SNCA) — GF(2^8) Cauchy MDS file protection" />
+  <meta name="theme-color" content="#07070a" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <title>Nano Cloud Codec (SNCA)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
@@ -12,11 +14,10 @@
 </head>
 <body>
   <div id="app">
-    <!-- Top bar -->
     <nav class="topbar" aria-label="Primary">
       <div class="brand">
         <span class="brand-mark" aria-hidden="true"></span>
-        <span class="brand-name">Nano Cloud</span>
+        <span class="brand-name">Nano Cloud Codec</span>
       </div>
       <div class="topbar-actions">
         <span id="status" class="status-pill" role="status">Starting…</span>
@@ -28,9 +29,7 @@
         </button>
       </div>
     </nav>
-
     <main class="stage">
-      <!-- Hero drop zone -->
       <section class="drop-card" id="dropZone" tabindex="0" aria-label="Upload files">
         <input type="file" id="fileInput" multiple hidden />
         <div class="drop-visual" aria-hidden="true">
@@ -45,14 +44,10 @@
         <p class="drop-hint">or click to browse</p>
         <p id="fileSummary" class="file-summary" hidden></p>
       </section>
-
-      <!-- Primary actions -->
       <section class="action-bar" aria-label="Actions">
         <button type="button" id="encodeBtn" class="btn btn-primary" disabled>Protect</button>
         <button type="button" id="decodeBtn" class="btn btn-secondary" disabled>Restore</button>
       </section>
-
-      <!-- Results -->
       <section class="results" id="resultsPanel" hidden>
         <div class="panel glass">
           <div class="panel-head">
@@ -70,8 +65,6 @@
       </section>
     </main>
   </div>
-
-  <!-- Settings modal -->
   <div id="settingsModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
     <div class="modal-backdrop" id="settingsBackdrop"></div>
     <div class="modal-card glass">
@@ -83,18 +76,17 @@
       </div>
       <div class="modal-body">
         <label class="field">
-          <span class="field-label">Data fragments</span>
+          <span class="field-label">Data fragments (k)</span>
           <input type="number" id="kInput" value="4" min="1" max="16" />
         </label>
         <label class="field">
-          <span class="field-label">Recovery fragments</span>
+          <span class="field-label">Recovery fragments (m)</span>
           <input type="number" id="mInput" value="2" min="1" max="8" />
         </label>
-        <p class="field-note">Higher recovery fragments tolerate more loss. Defaults work for most files.</p>
+        <p class="field-note">Any k surviving fragments restore the original file. SHA-256 must report 0-byte loss.</p>
       </div>
     </div>
   </div>
-
   <script type="module" src="/src/ui-controller.ts"></script>
 </body>
 </html>
