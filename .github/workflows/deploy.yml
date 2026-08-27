@@ -33,6 +33,9 @@ jobs:
           npm config set registry https://registry.npmjs.org/
           npm ci || npm install
 
+      - name: Run Cauchy MDS tests
+        run: npm test
+
       - name: Install emsdk
         run: |
           git clone --depth 1 https://github.com/emscripten-core/emsdk.git
