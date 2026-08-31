@@ -1,10 +1,9 @@
 import './styles.css';
-import { SNCADataRingBuffer } from './snca-ring-buffer';
-import type { SNCAResult, TelemetrySample, WorkerResponse } from './snca-types';
+import './pages.css';
+import { zipStore } from './js/zip.js';
 
-/* ------------------------------------------------------------------ */
-/* Safe DOM helpers                                                    */
-/* ------------------------------------------------------------------ */
+const MAX_PAYLOAD = 8 * 1024 * 1024;
+
 function el<T extends HTMLElement>(id: string): T | null {
   return document.getElementById(id) as T | null;
 }
@@ -16,6 +15,9 @@ const kInput = el<HTMLInputElement>('kInput');
 const mInput = el<HTMLInputElement>('mInput');
 const encodeBtn = el<HTMLButtonElement>('encodeBtn');
 const decodeBtn = el<HTMLButtonElement>('decodeBtn');
+const sampleBtn = el<HTMLButtonElement>('sampleBtn');
+const downloadZipBtn = el<HTMLButtonElement>('downloadZipBtn');
+const downloadFileBtn = el<HTMLButtonElement>('downloadFileBtn');
 const shardGrid = el<HTMLElement>('shardGrid');
 const telemetryEl = el<HTMLElement>('telemetry');
 const statusEl = el<HTMLElement>('status');
@@ -25,39 +27,80 @@ const settingsModal = el<HTMLElement>('settingsModal');
 const settingsClose = el<HTMLButtonElement>('settingsClose');
 const settingsBackdrop = el<HTMLElement>('settingsBackdrop');
 
-/* ------------------------------------------------------------------ */
-/* Runtime state                                                       */
-/* ------------------------------------------------------------------ */
+type Fragment = { index: number; kind: 'data' | 'parity'; bytes: Uint8Array };
+
 let worker: Worker | null = null;
-let ring: SNCADataRingBuffer | null = null;
-let lastResult: SNCAResult | null = null;
-let shardPresence: boolean[] = [];
-const telemetryLog: TelemetrySample[] = [];
-let ingestedBytes = 0;
-let ingestedNames: string[] = [];
+let pendingFile: { name: string; bytes: Uint8Array } | null = null;
+let fragments: Fragment[] = [];
+let present: boolean[] = [];
+let lastK = 4;
+let lastM = 2;
+let lastFilename = 'payload.bin';
+let recovered: { name: string; bytes: Uint8Array } | null = null;
 let bootTimer: ReturnType<typeof setTimeout> | null = null;
 
-const RENDER_URL =
-  (import.meta as any).env?.VITE_RENDER_SERVICE_URL ??
-  'https://nano-cloud-backend.onrender.com';
-
-const WORKER_READY_TIMEOUT_MS = 20000;
-const BACKEND_TIMEOUT_MS = 10000;
-
-/* ------------------------------------------------------------------ */
-/* Status                                                              */
-/* ------------------------------------------------------------------ */
 function setStatus(msg: string, kind?: 'ready' | 'error'): void {
   if (!statusEl) return;
   statusEl.textContent = msg;
   statusEl.classList.toggle('is-ready', kind === 'ready');
   statusEl.classList.toggle('is-error', kind === 'error');
-  console.log('[SNCA]', msg);
 }
 
-/* ------------------------------------------------------------------ */
-/* Worker lifecycle                                                    */
-/* ------------------------------------------------------------------ */
+function logActivity(op: string, meta: string): void {
+  if (!telemetryEl) return;
+  const row = document.createElement('div');
+  row.className = 'row';
+  row.innerHTML = `<span class="op">${op}</span><span class="meta">${meta}</span>`;
+  telemetryEl.prepend(row);
+  while (telemetryEl.children.length > 8) telemetryEl.lastElementChild?.remove();
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function copyAb(src: Uint8Array): ArrayBuffer {
+  const out = new ArrayBuffer(src.byteLength);
+  new Uint8Array(out).set(src);
+  return out;
+}
+
+function downloadBytes(data: Uint8Array, name: string, type = 'application/octet-stream'): void {
+  const copy = new Uint8Array(data.byteLength);
+  copy.set(data);
+  const blob = new Blob([copy], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function isSnca(bytes: Uint8Array): boolean {
+  return bytes.length >= 96 && bytes[0] === 0x53 && bytes[1] === 0x4e && bytes[2] === 0x43 && bytes[3] === 0x41;
+}
+
+function samplePayload(): Uint8Array {
+  const line = 'Nano Cloud Codec — SNCA Cauchy MDS sample. Zero-byte-loss vector.\n';
+  const parts: string[] = [];
+  for (let i = 0; i < 32; i++) parts.push(`${String(i).padStart(3, '0')} ${line}`);
+  return new TextEncoder().encode(parts.join(''));
+}
+
+function km(): { k: number; m: number } | null {
+  const k = parseInt(kInput?.value ?? '4', 10);
+  const m = parseInt(mInput?.value ?? '2', 10);
+  if (!Number.isInteger(k) || !Number.isInteger(m) || k < 1 || m < 1 || k > 16 || m > 16 || k + m > 32) {
+    return null;
+  }
+  return { k, m };
+}
+
 function clearBootTimer(): void {
   if (bootTimer !== null) {
     clearTimeout(bootTimer);
@@ -67,358 +110,282 @@ function clearBootTimer(): void {
 
 function initWorker(): void {
   try {
-    worker = new Worker(new URL('./snca-worker.ts', import.meta.url), { type: 'module' });
+    worker = new Worker(new URL('./worker/codec.worker.js', import.meta.url), { type: 'module' });
   } catch (err) {
     setStatus('Worker failed', 'error');
-    console.error('[SNCA] Worker construct', err);
+    console.error(err);
     return;
   }
 
   worker.onerror = (ev) => {
     clearBootTimer();
-    setStatus('WASM Error', 'error');
-    console.error('[SNCA] Worker error', ev.message);
+    setStatus('Engine error', 'error');
+    console.error(ev.message);
   };
 
-  worker.onmessage = (ev: MessageEvent<WorkerResponse>) => {
-    const msg = ev.data;
+  worker.onmessage = (ev: MessageEvent) => {
+    const msg = ev.data || {};
     try {
       if (msg.type === 'ready') {
         clearBootTimer();
         setStatus('Ready', 'ready');
         if (encodeBtn) encodeBtn.disabled = false;
+        if (sampleBtn) sampleBtn.disabled = false;
         return;
       }
-      if (msg.type === 'encoded' && msg.result) {
-        lastResult = msg.result;
-        shardPresence = new Array(msg.result.k + msg.result.m).fill(true);
+      if (msg.type === 'protected') {
+        fragments = (msg.fragments || []).map((f: Fragment) => ({
+          index: f.index,
+          kind: f.kind,
+          bytes: f.bytes instanceof Uint8Array ? f.bytes : new Uint8Array(f.bytes),
+        }));
+        lastK = msg.k;
+        lastM = msg.m;
+        lastFilename = msg.filename || lastFilename;
+        present = fragments.map(() => true);
+        recovered = null;
+        if (downloadFileBtn) {
+          downloadFileBtn.disabled = true;
+          downloadFileBtn.hidden = true;
+        }
         if (resultsPanel) resultsPanel.hidden = false;
-        renderShards(msg.result);
+        renderShards();
         if (decodeBtn) decodeBtn.disabled = false;
-        setStatus('Protected', 'ready');
+        if (downloadZipBtn) downloadZipBtn.disabled = false;
+        if (downloadFileBtn) downloadFileBtn.disabled = true;
         if (encodeBtn) encodeBtn.disabled = false;
-        logTelemetry({
-          timestamp: Date.now(),
-          latencyMs: msg.result.encodeLatencyMs,
-          throughputMBps: msg.result.throughputMBps,
-          operation: 'protect',
-        });
-        void persistSession(msg.result);
+        if (sampleBtn) sampleBtn.disabled = false;
+        setStatus('Protected', 'ready');
+        logActivity(
+          'protect',
+          `${msg.encodeLatencyMs?.toFixed?.(1) ?? '?'} ms · ${fragments.length} shards`,
+        );
         return;
       }
-      if (msg.type === 'decoded' && msg.data) {
-        setStatus('Restored', 'ready');
-        logTelemetry({
-          timestamp: Date.now(),
-          latencyMs: 0,
-          throughputMBps: 0,
-          operation: 'restore',
-        });
+      if (msg.type === 'restored') {
+        const data = msg.data instanceof Uint8Array ? msg.data : new Uint8Array(msg.data);
+        recovered = { name: msg.filename || lastFilename, bytes: data };
+        if (downloadFileBtn) {
+          downloadFileBtn.disabled = false;
+          downloadFileBtn.hidden = false;
+        }
+        if (encodeBtn) encodeBtn.disabled = false;
+        if (sampleBtn) sampleBtn.disabled = false;
+        if (msg.checksumOk) {
+          setStatus('Restored · SHA-256 match', 'ready');
+        } else {
+          setStatus('Checksum mismatch', 'error');
+        }
+        logActivity(
+          'restore',
+          msg.checksumOk ? `0-byte loss · ${msg.decodeLatencyMs?.toFixed?.(1) ?? '?'} ms` : 'checksum failed',
+        );
         return;
       }
       if (msg.type === 'error') {
         clearBootTimer();
-        setStatus('WASM Error', 'error');
+        setStatus(String(msg.error || 'Engine error'), 'error');
         if (encodeBtn) encodeBtn.disabled = false;
-        console.error('[SNCA] worker:', msg.error);
+        if (sampleBtn) sampleBtn.disabled = false;
       }
     } catch (err) {
-      setStatus('UI Error', 'error');
-      console.error('[SNCA] onmessage handler', err);
+      setStatus('UI error', 'error');
+      console.error(err);
     }
   };
 
   bootTimer = setTimeout(() => {
-    setStatus('WASM timeout', 'error');
-    console.error('[SNCA] Worker did not become ready within', WORKER_READY_TIMEOUT_MS, 'ms');
-  }, WORKER_READY_TIMEOUT_MS);
+    setStatus('Engine timeout', 'error');
+  }, 20000);
 
-  try {
-    worker.postMessage({ type: 'init' });
-  } catch (err) {
-    clearBootTimer();
-    setStatus('WASM Error', 'error');
-    console.error('[SNCA] postMessage init', err);
-  }
+  worker.postMessage({ type: 'init' });
 }
 
-/* ------------------------------------------------------------------ */
-/* File ingestion                                                      */
-/* ------------------------------------------------------------------ */
-function handleFiles(files: FileList | null): void {
-  if (!files || !ring || files.length === 0) return;
-  for (const file of Array.from(files)) {
-    const reader = new FileReader();
-    reader.onerror = () => setStatus('Read failed', 'error');
-    reader.onload = () => {
-      try {
-        const buf = new Uint8Array(reader.result as ArrayBuffer);
-        const written = ring!.write(buf);
-        ingestedBytes += written;
-        if (!ingestedNames.includes(file.name)) ingestedNames.push(file.name);
-        updateFileSummary();
-        setStatus('Ready', 'ready');
-      } catch (err) {
-        setStatus('Ingest failed', 'error');
-        console.error(err);
-      }
+function renderShards(): void {
+  if (!shardGrid) return;
+  shardGrid.innerHTML = '';
+  for (const f of fragments) {
+    const on = present[f.index] !== false;
+    const node = document.createElement('div');
+    node.className = `shard ${f.kind === 'data' ? 'data' : 'parity'}${on ? '' : ' corrupted'}`;
+    node.setAttribute('role', 'listitem');
+    node.innerHTML = `<span>${f.index}</span><span class="shard-label">${f.kind === 'data' ? 'Data' : 'Recovery'}</span>`;
+    node.title = on ? 'Tap to simulate loss' : 'Tap to bring fragment back';
+    node.onclick = () => {
+      present[f.index] = !present[f.index];
+      recovered = null;
+      if (downloadFileBtn) downloadFileBtn.disabled = true;
+      renderShards();
     };
-    reader.readAsArrayBuffer(file);
+    shardGrid.appendChild(node);
   }
 }
 
-function updateFileSummary(): void {
-  if (!fileSummary) return;
-  if (ingestedBytes <= 0) {
-    fileSummary.hidden = true;
+async function ingestFiles(list: FileList | File[] | null): Promise<void> {
+  if (!list || list.length === 0) return;
+  const files = Array.from(list);
+  const buffers = await Promise.all(
+    files.map(async (f) => ({ name: f.name, bytes: new Uint8Array(await f.arrayBuffer()) })),
+  );
+  const shards = buffers.filter((b) => isSnca(b.bytes));
+  if (shards.length > 0 && shards.length === buffers.length) {
+    if (!worker) {
+      setStatus('Not ready', 'error');
+      return;
+    }
+    setStatus('Restoring…');
+    worker.postMessage({
+      type: 'restore',
+      fragments: shards.map((s) => copyAb(s.bytes)),
+    });
+    if (resultsPanel) resultsPanel.hidden = false;
     return;
   }
-  const mb = ingestedBytes / (1024 * 1024);
-  const label =
-    ingestedNames.length === 1 ? ingestedNames[0] : `${ingestedNames.length} files`;
-  const size =
-    mb >= 0.01 ? `${mb.toFixed(2)} MB` : `${Math.max(1, Math.round(ingestedBytes / 1024))} KB`;
-  fileSummary.textContent = `${label} · ${size}`;
-  fileSummary.hidden = false;
+  const first = buffers[0];
+  if (first.bytes.length > MAX_PAYLOAD) {
+    setStatus(`File exceeds ${formatBytes(MAX_PAYLOAD)}`, 'error');
+    return;
+  }
+  pendingFile = first;
+  fragments = [];
+  recovered = null;
+  if (fileSummary) {
+    fileSummary.hidden = false;
+    fileSummary.textContent = `${first.name} · ${formatBytes(first.bytes.length)}`;
+  }
+  setStatus('Ready', 'ready');
 }
 
-/* ------------------------------------------------------------------ */
-/* Encode / Decode                                                     */
-/* ------------------------------------------------------------------ */
-
-function padPayload(data: Uint8Array, k: number): Uint8Array {
-  // Pad to multiple of k (and at least 16 bytes for SIMD-friendly blocks)
-  const unit = k * 16;
-  const need = data.length === 0 ? unit : Math.ceil(data.length / unit) * unit;
-  if (need === data.length) return data;
-  const out = new Uint8Array(need);
-  out.set(data);
-  return out;
-}
-
-function doEncode(): void {
-  if (!worker || !ring) {
+function doProtect(bytes: Uint8Array, filename: string): void {
+  const cfg = km();
+  if (!cfg) {
+    setStatus('Check settings', 'error');
+    if (settingsModal) settingsModal.hidden = false;
+    return;
+  }
+  if (!worker) {
     setStatus('Not ready', 'error');
     return;
   }
-  const k = parseInt(kInput?.value ?? '4', 10);
-  const m = parseInt(mInput?.value ?? '2', 10);
-  if (!Number.isFinite(k) || !Number.isFinite(m) || k < 1 || m < 1 || k + m > 32) {
-    setStatus('Check settings', 'error');
-    openSettings();
+  if (bytes.length > MAX_PAYLOAD) {
+    setStatus(`File exceeds ${formatBytes(MAX_PAYLOAD)}`, 'error');
     return;
   }
-
-  let avail = ring.available();
-  if (avail <= 0) {
-    setStatus('Add files first', 'error');
-    if (dropZone) {
-      dropZone.classList.add('drag');
-      setTimeout(() => dropZone.classList.remove('drag'), 600);
-    }
-    return;
-  }
-
-  // Read everything available, then pad so length % k === 0
-  const raw = ring.read(avail);
-  if (!raw || raw.length === 0) {
-    setStatus('Add files first', 'error');
-    return;
-  }
-  const data = padPayload(raw, k);
-
+  lastFilename = filename;
   setStatus('Protecting…');
   if (encodeBtn) encodeBtn.disabled = true;
-  try {
-    // Structured clone only — avoid transferable edge cases with WASM heap
-    worker.postMessage({ type: 'encode', config: { k, m }, data });
-  } catch (err) {
-    setStatus('Encode failed', 'error');
-    console.error(err);
-    if (encodeBtn) encodeBtn.disabled = false;
+  if (sampleBtn) sampleBtn.disabled = true;
+  worker.postMessage({
+    type: 'protect',
+    k: cfg.k,
+    m: cfg.m,
+    filename,
+    data: copyAb(bytes),
+  });
+}
+
+function doEncode(): void {
+  if (!pendingFile) {
+    setStatus('Add files first', 'error');
+    dropZone?.classList.add('drag');
+    setTimeout(() => dropZone?.classList.remove('drag'), 600);
+    return;
   }
+  doProtect(pendingFile.bytes, pendingFile.name);
+}
+
+function doSample(): void {
+  const bytes = samplePayload();
+  pendingFile = { name: 'snca-sample.txt', bytes };
+  if (fileSummary) {
+    fileSummary.hidden = false;
+    fileSummary.textContent = `snca-sample.txt · ${formatBytes(bytes.length)}`;
+  }
+  doProtect(bytes, 'snca-sample.txt');
 }
 
 function doDecode(): void {
-  if (!worker || !lastResult) {
+  if (!worker || fragments.length === 0) {
     setStatus('Protect first', 'error');
     return;
   }
-  const { k, m, blockSize, data, parity } = lastResult;
-  const n = k + m;
-  const shards = new Uint8Array(n * blockSize);
-  shards.set(data, 0);
-  shards.set(parity, k * blockSize);
-  const present = new Uint8Array(n);
-  for (let i = 0; i < n; ++i) present[i] = shardPresence[i] ? 1 : 0;
+  const kept = fragments.filter((f) => present[f.index]);
+  if (kept.length < lastK) {
+    setStatus(`Need ${lastK} fragments, have ${kept.length}`, 'error');
+    return;
+  }
   setStatus('Restoring…');
-  try {
-    worker.postMessage(
-      { type: 'decode', config: { k, m }, shards, present, blockSize }
-    );
-  } catch (err) {
-    setStatus('Restore failed', 'error');
-    console.error(err);
-  }
+  worker.postMessage({
+    type: 'restore',
+    fragments: kept.map((f) => copyAb(f.bytes)),
+  });
 }
 
-/* ------------------------------------------------------------------ */
-/* UI helpers                                                          */
-/* ------------------------------------------------------------------ */
-function renderShards(result: SNCAResult): void {
-  if (!shardGrid) return;
-  shardGrid.innerHTML = '';
-  for (let i = 0; i < result.k; ++i) {
-    const node = document.createElement('div');
-    node.className = 'shard data' + (shardPresence[i] ? '' : ' corrupted');
-    node.setAttribute('role', 'listitem');
-    node.innerHTML = `<span>${i + 1}</span><span class="shard-label">Data</span>`;
-    node.title = 'Data fragment — tap to toggle loss';
-    node.onclick = () => toggleShard(i, node);
-    shardGrid.appendChild(node);
-  }
-  for (let i = 0; i < result.m; ++i) {
-    const idx = result.k + i;
-    const node = document.createElement('div');
-    node.className = 'shard parity' + (shardPresence[idx] ? '' : ' corrupted');
-    node.setAttribute('role', 'listitem');
-    node.innerHTML = `<span>${i + 1}</span><span class="shard-label">Recovery</span>`;
-    node.title = 'Recovery fragment — tap to toggle loss';
-    node.onclick = () => toggleShard(idx, node);
-    shardGrid.appendChild(node);
-  }
-}
-
-function toggleShard(index: number, node: HTMLElement): void {
-  shardPresence[index] = !shardPresence[index];
-  node.classList.toggle('corrupted', !shardPresence[index]);
-}
-
-function logTelemetry(sample: TelemetrySample): void {
-  if (!telemetryEl) return;
-  telemetryLog.push(sample);
-  if (telemetryLog.length > 50) telemetryLog.shift();
-  telemetryEl.innerHTML = telemetryLog
-    .slice(-8)
-    .reverse()
-    .map((s) => {
-      const time = new Date(s.timestamp).toLocaleTimeString([], {
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      });
-      const meta =
-        s.operation === 'protect' && s.latencyMs > 0
-          ? `${s.latencyMs.toFixed(1)} ms · ${s.throughputMBps.toFixed(1)} MB/s`
-          : time;
-      return `<div class="row"><span class="op">${s.operation}</span><span class="meta">${meta}</span></div>`;
-    })
-    .join('');
-}
-
-function openSettings(): void {
-  if (settingsModal) settingsModal.hidden = false;
-}
-
-function closeSettings(): void {
-  if (settingsModal) settingsModal.hidden = true;
-}
-
-/* ------------------------------------------------------------------ */
-/* Backend coupling                                                    */
-/* ------------------------------------------------------------------ */
-async function persistSession(result: SNCAResult): Promise<void> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), BACKEND_TIMEOUT_MS);
-  try {
-    await fetch(`${RENDER_URL}/api/metrics`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      signal: ctrl.signal,
-      body: JSON.stringify({
-        k: result.k,
-        m: result.m,
-        bytes: result.data.length,
-        latencyMs: result.encodeLatencyMs,
-        throughputMBps: result.throughputMBps,
-        source: 'codec-ui',
-        ts: Date.now(),
-      }),
-    });
-  } catch (err) {
-    console.warn('[SNCA] metrics (non-fatal)', err);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function pingBackend(): Promise<void> {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), BACKEND_TIMEOUT_MS);
-  try {
-    const res = await fetch(`${RENDER_URL}/health`, { signal: ctrl.signal });
-    if (!res.ok) console.warn('[SNCA] backend health', res.status);
-  } catch (err) {
-    console.warn('[SNCA] backend unreachable (non-fatal)', err);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* Bootstrap                                                           */
-/* ------------------------------------------------------------------ */
 function bootstrap(): void {
-  try {
-    setStatus('Starting…');
+  setStatus('Starting…');
+  if (encodeBtn) encodeBtn.disabled = true;
+  if (decodeBtn) decodeBtn.disabled = true;
+  if (sampleBtn) sampleBtn.disabled = true;
+  if (downloadZipBtn) downloadZipBtn.disabled = true;
+  if (downloadFileBtn) downloadFileBtn.disabled = true;
 
-    try {
-      ring = new SNCADataRingBuffer(1 << 20);
-    } catch (err) {
-      setStatus('Memory Error', 'error');
-      console.error('[SNCA] ring buffer', err);
-      return;
-    }
+  initWorker();
 
-    if (encodeBtn) encodeBtn.disabled = true;
-    if (decodeBtn) decodeBtn.disabled = true;
-
-    initWorker();
-    void pingBackend();
-
-    if (dropZone && fileInput) {
-      dropZone.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        dropZone.classList.add('drag');
-      });
-      dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
-      dropZone.addEventListener('drop', (e) => {
-        e.preventDefault();
-        dropZone.classList.remove('drag');
-        handleFiles(e.dataTransfer?.files ?? null);
-      });
-      dropZone.addEventListener('click', () => fileInput.click());
-      dropZone.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          fileInput.click();
-        }
-      });
-      fileInput.addEventListener('change', () => handleFiles(fileInput.files));
-    }
-
-    encodeBtn?.addEventListener('click', doEncode);
-    decodeBtn?.addEventListener('click', doDecode);
-    settingsBtn?.addEventListener('click', openSettings);
-    settingsClose?.addEventListener('click', closeSettings);
-    settingsBackdrop?.addEventListener('click', closeSettings);
-    document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && settingsModal && !settingsModal.hidden) closeSettings();
+  if (dropZone && fileInput) {
+    dropZone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dropZone.classList.add('drag');
     });
-  } catch (err) {
-    setStatus('Boot failed', 'error');
-    console.error('[SNCA] bootstrap', err);
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('drag');
+      void ingestFiles(e.dataTransfer?.files ?? null);
+    });
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        fileInput.click();
+      }
+    });
+    fileInput.addEventListener('change', () => {
+      void ingestFiles(fileInput.files);
+      fileInput.value = '';
+    });
   }
+
+  encodeBtn?.addEventListener('click', doEncode);
+  decodeBtn?.addEventListener('click', doDecode);
+  sampleBtn?.addEventListener('click', doSample);
+  downloadZipBtn?.addEventListener('click', () => {
+    if (fragments.length === 0) return;
+    const files = fragments.map((f) => {
+      const stem = lastFilename.replace(/\.[^.]+$/, '') || 'payload';
+      const kind = f.kind === 'data' ? 'd' : 'p';
+      return {
+        name: `${stem}.s${String(f.index).padStart(2, '0')}${kind}.snca`,
+        data: f.bytes,
+      };
+    });
+    downloadBytes(zipStore(files), `${lastFilename}.snca.zip`, 'application/zip');
+  });
+  downloadFileBtn?.addEventListener('click', () => {
+    if (!recovered) return;
+    downloadBytes(recovered.bytes, recovered.name);
+  });
+  settingsBtn?.addEventListener('click', () => {
+    if (settingsModal) settingsModal.hidden = false;
+  });
+  settingsClose?.addEventListener('click', () => {
+    if (settingsModal) settingsModal.hidden = true;
+  });
+  settingsBackdrop?.addEventListener('click', () => {
+    if (settingsModal) settingsModal.hidden = true;
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && settingsModal && !settingsModal.hidden) settingsModal.hidden = true;
+  });
 }
 
 bootstrap();
