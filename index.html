@@ -5,12 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="description" content="Nano Cloud Codec (SNCA) — GF(2^8) Cauchy MDS file protection" />
   <meta name="theme-color" content="#07070a" />
-  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="manifest" href="./manifest.webmanifest" />
   <title>Nano Cloud Codec (SNCA)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/src/styles.css" />
 </head>
 <body>
   <div id="app">
@@ -41,18 +40,21 @@
           </svg>
         </div>
         <h1 class="drop-title">Drop files to protect</h1>
-        <p class="drop-hint">or click to browse</p>
+        <p class="drop-hint">or drop .snca fragments to restore</p>
         <p id="fileSummary" class="file-summary" hidden></p>
       </section>
       <section class="action-bar" aria-label="Actions">
         <button type="button" id="encodeBtn" class="btn btn-primary" disabled>Protect</button>
         <button type="button" id="decodeBtn" class="btn btn-secondary" disabled>Restore</button>
+        <button type="button" id="sampleBtn" class="btn btn-secondary" disabled>Protect sample</button>
+        <button type="button" id="downloadZipBtn" class="btn btn-secondary" disabled>Download .snca</button>
       </section>
+      <button type="button" id="downloadFileBtn" class="btn btn-primary" disabled hidden>Download recovered file</button>
       <section class="results" id="resultsPanel" hidden>
         <div class="panel glass">
           <div class="panel-head">
             <h2>Fragments</h2>
-            <p class="panel-sub">Tap a fragment to simulate loss before restore</p>
+            <p class="panel-sub">Tap a fragment to simulate loss before restore. Any k survivors rebuild the original.</p>
           </div>
           <div id="shardGrid" class="shard-grid" role="list"></div>
         </div>
@@ -81,9 +83,9 @@
         </label>
         <label class="field">
           <span class="field-label">Recovery fragments (m)</span>
-          <input type="number" id="mInput" value="2" min="1" max="8" />
+          <input type="number" id="mInput" value="2" min="1" max="16" />
         </label>
-        <p class="field-note">Any k surviving fragments restore the original file. SHA-256 must report 0-byte loss.</p>
+        <p class="field-note">Any k surviving fragments restore the original file. SHA-256 must report 0-byte loss. Files stay in this browser (8 MB limit).</p>
       </div>
     </div>
   </div>
