@@ -2,7 +2,7 @@
 
 Production GF(2⁸) Cauchy MDS erasure codec. One Protect / Restore path.
 
-**Live site:** https://dominiccalandro1991-byte.github.io/snca-codec/
+**Live site:** https://voltcore-org.github.io/snca-codec/
 
 - App name: **Nano Cloud Codec (SNCA)**
 - Bundle ID: `com.nanocloud.codec`
