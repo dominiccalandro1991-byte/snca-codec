@@ -1,6 +1,7 @@
 import './styles.css';
 import './pages.css';
 import { zipStore } from './js/zip.js';
+import { emitVoltcore, installVoltcoreTelemetry } from './voltcore-telemetry';
 
 const MAX_PAYLOAD = 8 * 1024 * 1024;
 
@@ -322,6 +323,7 @@ function doDecode(): void {
 }
 
 function bootstrap(): void {
+  installVoltcoreTelemetry();
   setStatus('Starting…');
   if (encodeBtn) encodeBtn.disabled = true;
   if (decodeBtn) decodeBtn.disabled = true;
